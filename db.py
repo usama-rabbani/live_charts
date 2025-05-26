@@ -7,13 +7,6 @@ import streamlit as st
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Load database credentials from Streamlit secrets
-try:
-    db_config = st.secrets["database"]
-except KeyError as e:
-    # logger.error(f"Failed to load database credentials from secrets.toml: {e}")
-    raise
-
 @contextmanager
 def get_db_connection():
     conn = None
@@ -65,3 +58,4 @@ def fetch_new_execution_rows(last_seen_timestamp, var_id):
 if __name__ == "__main__":
     result = fetch_new_execution_rows(last_seen_timestamp=1, var_id=13430)  
     print("Function result:", result)
+    
