@@ -2,22 +2,30 @@ import pyodbc
 import logging
 from contextlib import contextmanager
 from datetime import datetime
+import streamlit as st
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Load database credentials from Streamlit secrets
+try:
+    db_config = st.secrets["database"]
+except KeyError as e:
+    logger.error(f"Failed to load database credentials from secrets.toml: {e}")
+    raise
 
 @contextmanager
 def get_db_connection():
     conn = None
     try:
         conn = pyodbc.connect(
-            "DRIVER={ODBC Driver 17 for SQL Server};"
-            "SERVER=tcp:prod-o3.public.c72ebf9e75f0.database.windows.net,3342;"
-            "DATABASE=OIG_LiveO3DB;"
-            "UID=NKU_USER;"
-            "PWD=rXy2243!23$;"
-            "Encrypt=yes;"
-            "TrustServerCertificate=yes;"
+            f"DRIVER={{{db_config['DRIVER']}}};"
+            f"SERVER={db_config['SERVER']};"
+            f"DATABASE={db_config['DATABASE']};"
+            f"UID={db_config['UID']};"
+            f"PWD={db_config['PWD']};"
+            f"Encrypt={db_config['ENCRYPT']};"
+            f"TrustServerCertificate={db_config['TRUST_SERVER_CERTIFICATE']};"
         )
         yield conn
     except pyodbc.Error as e:
@@ -33,7 +41,7 @@ def fetch_new_execution_rows(last_seen_timestamp, var_id):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             query = """
-                SELECT TOP 1 Entry_On AS timestamp, Result, Result_On
+                SELECT TOP 100 Entry_On AS timestamp, Result, Result_On
                 FROM execution 
                 WHERE Var_Id = ? AND Result_On > ?
                 ORDER BY Result_On DESC
@@ -57,4 +65,3 @@ def fetch_new_execution_rows(last_seen_timestamp, var_id):
 if __name__ == "__main__":
     result = fetch_new_execution_rows(last_seen_timestamp=1, var_id=13430)  
     print("Function result:", result)
-    
