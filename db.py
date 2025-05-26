@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 try:
     db_config = st.secrets["database"]
 except KeyError as e:
-    logger.error(f"Failed to load database credentials from secrets.toml: {e}")
+    # logger.error(f"Failed to load database credentials from secrets.toml: {e}")
     raise
 
 @contextmanager
@@ -29,7 +29,7 @@ def get_db_connection():
         )
         yield conn
     except pyodbc.Error as e:
-        logger.error(f"Database connection error: {e}")
+        # logger.error(f"Database connection error: {e}")
         raise
     finally:
         if conn:
@@ -46,20 +46,20 @@ def fetch_new_execution_rows(last_seen_timestamp, var_id):
                 WHERE Var_Id = ? AND Result_On > ?
                 ORDER BY Result_On DESC
             """
-            logger.info(f"Executing query with var_id={var_id}, last_seen_timestamp={last_seen_timestamp}")
+            # logger.info(f"Executing query with var_id={var_id}, last_seen_timestamp={last_seen_timestamp}")
             print("Before executing query")
             cursor.execute(query, (var_id, last_seen_timestamp))
             print("After executing query")
             rows = cursor.fetchall()
-            logger.info(f"Retrieved {len(rows)} rows from database")
+            # logger.info(f"Retrieved {len(rows)} rows from database")
             print(f"Query executed successfully, number of rows: {len(rows)}")
             columns = [column[0] for column in cursor.description]
             return [dict(zip(columns, row)) for row in rows]
     except pyodbc.Error as e:
-        logger.error(f"Database query error: {e}")
+        # logger.error(f"Database query error: {e}")
         return []
     except Exception as e:
-        logger.error(f"Unexpected error in fetch_new_execution_rows: {e}")
+        # logger.error(f"Unexpected error in fetch_new_execution_rows: {e}")
         return []
 
 if __name__ == "__main__":
