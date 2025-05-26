@@ -33,22 +33,22 @@ def get_latest_executions(topic, max_messages=10, timeout_ms=5000, max_retries=3
                 if len(messages) >= max_messages:
                     break
                 messages.append(message_data)
-                logger.debug(f"Received message: offset={message.offset}, value={message_data}")
+                # logger.debug(f"Received message: offset={message.offset}, value={message_data}")
             
-            logger.info(f"Consumed {len(messages)} messages")
+            # logger.info(f"Consumed {len(messages)} messages")
             consumer.close()
             return messages
         except KafkaError as e:
-            logger.error(f"Kafka consumer error: {e}")
+            # logger.error(f"Kafka consumer error: {e}")
             retry_count += 1
             if retry_count < max_retries:
-                logger.info(f"Retrying ({retry_count}/{max_retries}) after 2 seconds...")
+                # logger.info(f"Retrying ({retry_count}/{max_retries}) after 2 seconds...")
                 time.sleep(2)
             else:
-                logger.error(f"Max retries reached. Failed to consume messages.")
+                # logger.error(f"Max retries reached. Failed to consume messages.")
                 return []
         except Exception as e:
-            logger.error(f"Unexpected error in consumer: {e}")
+            # logger.error(f"Unexpected error in consumer: {e}")
             return []
         finally:
             try:

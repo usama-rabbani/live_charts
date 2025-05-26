@@ -20,9 +20,9 @@ class KafkaProducerSingleton:
                     retries=3,
                     max_block_ms=10000
                 )
-                logger.info("Kafka Producer initialized successfully")
+                # logger.info("Kafka Producer initialized successfully")
             except Exception as e:
-                logger.error(f"Failed to initialize Kafka Producer: {e}")
+                # logger.error(f"Failed to initialize Kafka Producer: {e}")
                 raise
         return cls._instance
 
@@ -44,11 +44,11 @@ def send_execution_to_kafka(topic, data):
             }
             future = producer.send(topic, message)
             record_metadata = future.get(timeout=100)
-            logger.info(f"Sent message to {topic}: partition={record_metadata.partition}, offset={record_metadata.offset}")
+            # logger.info(f"Sent message to {topic}: partition={record_metadata.partition}, offset={record_metadata.offset}")
         producer.flush()
     except KafkaError as e:
-        logger.error(f"Error sending message to Kafka: {e}")
+        # logger.error(f"Error sending message to Kafka: {e}")
         raise
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        # logger.error(f"Unexpected error: {e}")
         raise

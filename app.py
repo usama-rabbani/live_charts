@@ -2,41 +2,38 @@ import streamlit as st
 import plotly.graph_objects as go
 import time
 from datetime import datetime
-# import pytz  # Add pytz for timezone handling
-from db import fetch_new_execution_rows
+from db import fetch_new_execution_rows, fetch_var_options  
 from producer import send_execution_to_kafka
 from consumer import get_latest_executions
 import logging
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
 # Set Streamlit page configuration
 st.set_page_config(page_title="Live Execution Dashboard", layout="wide")
 st.title(":test_tube: Live Execution Results Dashboard")
-# Define Var_Desc to Var_Id mapping
-VAR_OPTIONS = [
-    {"Var_Desc": "HugoBeck-2 -> Net count", "Var_Id": 11634},
-    {"Var_Desc": "Engraving-1 -> Net Production", "Var_Id": 175},
-    {"Var_Desc": "Engraving-2 -> Net Production", "Var_Id": 1257},
-    {"Var_Desc": "Krones6 -> Production Count - IoT", "Var_Id": 5321},
-    {"Var_Desc": "Pope-Reel -> Jumbo Production", "Var_Id": 5886},
-    {"Var_Desc": "Comexi-Poc -> Net Count", "Var_Id": 5952},
-    {"Var_Desc": "proslit=PoC -> Net Count", "Var_Id": 5956},
-    {"Var_Desc": "Nexus-PoC -> Net Count", "Var_Id": 5955},
-    {"Var_Desc": "Rotomec-PoC -> Net Count", "Var_Id": 5957},
-    {"Var_Desc": "Jkamp-PoC -> Net Count", "Var_Id": 5954},
-]
+
+#Fetch VAR_OPTIONS from db 
+VAR_OPTIONS = fetch_var_options()
+
+# if no data error generate
+if not VAR_OPTIONS:
+    st.error("No variable options found in the database. Please check the query or database connection.")
+    st.stop()
+
 # Create dropdown for Var_Desc (default to first option)
 var_desc_list = [option["Var_Desc"] for option in VAR_OPTIONS]
 selected_var_desc = st.selectbox("Select Variable Description", var_desc_list, index=0)
+
 # Get the corresponding Var_Id for the selected Var_Desc
 selected_var_id = next(option["Var_Id"] for option in VAR_OPTIONS if option["Var_Desc"] == selected_var_desc)
-# # Add a timezone selector
-# timezone_list = pytz.all_timezones
-# selected_timezone = st.selectbox("Select your timezone", timezone_list, index=timezone_list.index("Asia/Karachi"))
+
 # Constants
 POLL_INTERVAL = 2  # seconds
 MAX_PLOT_POINTS = 100
 KAFKA_TOPIC = "FastTopic"
+
 # Initialize session state
 def initialize_session_state():
     if 'last_timestamp' not in st.session_state:
@@ -51,16 +48,23 @@ def initialize_session_state():
         st.session_state.is_first_run = True
     if 'total_points' not in st.session_state:
         st.session_state.total_points = 0
+    if 'latest_result' not in st.session_state:  
+        st.session_state.latest_result = None    
+
 initialize_session_state()
+
 # Create columns for layout
 col1, col2 = st.columns([3, 1])
+
 # Placeholder for metrics
 with col2:
     status_placeholder = st.empty()
     metrics_placeholder = st.empty()
+
 # Placeholder for the Plotly graph
 with col1:
     chart_placeholder = st.empty()
+
 def fetch_and_update_data(show_loader):
     new_rows = fetch_new_execution_rows(st.session_state.last_timestamp, selected_var_id)
     # logger.info(f"Fetched {len(new_rows)} new rows from database")
@@ -74,20 +78,30 @@ def fetch_and_update_data(show_loader):
                 else row['Result_On']
                 for row in new_rows
             )
+
+            if new_rows:
+                latest_row = max(new_rows, key=lambda x: x['Result_On'] if isinstance(x['Result_On'], datetime) else datetime.fromisoformat(x['Result_On'].replace('Z', '+00:00')))
+                st.session_state.latest_result = float(latest_row['Result']) if latest_row['Result'] is not None else None
             # logger.info(f"Updated last_timestamp to {st.session_state.last_timestamp}")
         except Exception as e:
             # logger.error(f"Kafka send error: {e}")
             status_placeholder.error(f"Failed to send to Kafka: {str(e)}. Continuing without Kafka update.")
         st.session_state.plot_data.extend(new_rows)
         new_data_count += len(new_rows)
+
     messages = get_latest_executions(KAFKA_TOPIC, max_messages=10, last_timestamp=st.session_state.last_timestamp)
     if messages:
         st.session_state.plot_data.extend(messages)
         st.session_state.plot_data = st.session_state.plot_data[-MAX_PLOT_POINTS:]
         new_data_count += len(messages)
         # logger.info(f"Received {len(messages)} new messages from Kafka")
+        
+        if messages:
+            latest_message = max(messages, key=lambda x: x['Result_On'] if isinstance(x['Result_On'], datetime) else datetime.fromisoformat(x['Result_On'].replace('Z', '+00:00')))
+            st.session_state.latest_result = float(latest_message['Result']) if latest_message['Result'] is not None else None
     if new_data_count > 0:
         st.session_state.total_points += new_data_count
+
 def prepare_plot_data():
     x, y = [], []
     for row in st.session_state.plot_data:
@@ -104,6 +118,7 @@ def prepare_plot_data():
                 # logger.warning(f"Invalid data format: {e}")
                 continue
     return x, y
+
 def update_metrics():
     with metrics_placeholder.container():
         st.metric("Total Points", st.session_state.total_points)
@@ -117,12 +132,14 @@ def update_metrics():
             if row.get('Result') is not None
         )
         average_result = total_result / count if count > 0 else 0
-        st.metric("Sum Result", total_result)
-        st.metric("Average Result", average_result)
-        # Convert server time to the user's selected timezone
+        st.metric("Sum Result", f"{total_result:.3f}")
+        st.metric("Average Result", f"{average_result:.3f}")
         local_time = datetime.now()
         last_update_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
         st.metric("Last Update", last_update_time)
+        st.metric("Latest Result", st.session_state.latest_result if st.session_state.latest_result is not None else "N/A")
+        
+
 def plot_chart(x, y):
     if x and y:
         fig = go.Figure()
@@ -136,12 +153,12 @@ def plot_chart(x, y):
         ))
         fig.update_layout(
             title="Real-Time Execution Results",
-            xaxis_title="Timestamp",
+            xaxis_title="",
             yaxis_title="Result",
             xaxis=dict(
                 tickangle=45,
-                tickformat="%H:%M:%S",
-                rangeslider=dict(visible=True),
+                tickformat="",
+                rangeslider=dict(visible=False),
                 type="date"
             ),
             yaxis=dict(gridcolor='rgba(255,255,255,0.1)'),
@@ -154,6 +171,7 @@ def plot_chart(x, y):
         status_placeholder.success("Chart updated successfully")
     else:
         status_placeholder.warning("No valid data to display")
+
 def update_dashboard():
     var_id_changed = st.session_state.previous_var_id != selected_var_id
     if var_id_changed:
@@ -161,6 +179,7 @@ def update_dashboard():
         st.session_state.last_timestamp = datetime.min
         st.session_state.previous_var_id = selected_var_id
         st.session_state.total_points = 0  # Reset total points
+        st.session_state.latest_result = None
         # logger.info(f"Var_Id changed to {selected_var_id}, resetting plot data, timestamp, and total points")
     show_loader = st.session_state.is_first_run or var_id_changed
     try:
@@ -177,6 +196,7 @@ def update_dashboard():
     except Exception as e:
         # logger.error(f"Dashboard update error: {e}")
         status_placeholder.error(f"Error: {str(e)}")
+
 # Main loop
 while True:
     update_dashboard()
