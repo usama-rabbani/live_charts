@@ -53,7 +53,14 @@ def initialize_session_state():
         st.session_state.latest_result = None    
 
 initialize_session_state()
-
+hide_streamlit_style = """
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    </style>
+    """
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 # Create columns for layout
 col1, col2 = st.columns([3, 1])
 
