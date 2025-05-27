@@ -1,4 +1,3 @@
-
 import streamlit as st
 import plotly.graph_objects as go
 import time
@@ -75,7 +74,6 @@ with col1:
 
 def fetch_and_update_data(show_loader):
     new_rows = fetch_new_execution_rows(st.session_state.last_timestamp, selected_var_id)
-    # logger.info(f"Fetched {len(new_rows)} new rows from database")
     new_data_count = 0
     if new_rows:
         try:
@@ -90,9 +88,7 @@ def fetch_and_update_data(show_loader):
             if new_rows:
                 latest_row = max(new_rows, key=lambda x: x['Result_On'] if isinstance(x['Result_On'], datetime) else datetime.fromisoformat(x['Result_On'].replace('Z', '+00:00')))
                 st.session_state.latest_result = float(latest_row['Result']) if latest_row['Result'] is not None else None
-            # logger.info(f"Updated last_timestamp to {st.session_state.last_timestamp}")
         except Exception as e:
-            # logger.error(f"Kafka send error: {e}")
             status_placeholder.error(f"Failed to send to Kafka: {str(e)}. Continuing without Kafka update.")
         st.session_state.plot_data.extend(new_rows)
         new_data_count += len(new_rows)
@@ -102,7 +98,6 @@ def fetch_and_update_data(show_loader):
         st.session_state.plot_data.extend(messages)
         st.session_state.plot_data = st.session_state.plot_data[-MAX_PLOT_POINTS:]
         new_data_count += len(messages)
-        # logger.info(f"Received {len(messages)} new messages from Kafka")
         
         if messages:
             latest_message = max(messages, key=lambda x: x['Result_On'] if isinstance(x['Result_On'], datetime) else datetime.fromisoformat(x['Result_On'].replace('Z', '+00:00')))
@@ -123,42 +118,45 @@ def prepare_plot_data():
                 x.append(result_on)
                 y.append(result)
             except (ValueError, TypeError) as e:
-                # logger.warning(f"Invalid data format: {e}")
                 continue
-    return x, y
-
-def update_metrics():
-    with metrics_placeholder.container():
-        st.metric("Total Points", st.session_state.total_points)
-        total_result = sum(
-            float(row.get('Result', 0))
-            for row in st.session_state.plot_data
-            if row.get('Result') is not None
-        )
-        count = sum(
-            1 for row in st.session_state.plot_data
-            if row.get('Result') is not None
-        )
-        average_result = total_result / count if count > 0 else 0
-        st.metric("Sum Result", f"{total_result:.3f}")
-        st.metric("Average Result", f"{average_result:.3f}")
-        local_time = datetime.now()
-        last_update_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
-        st.metric("Last Update", last_update_time)
-        st.metric("Latest Result", st.session_state.latest_result if st.session_state.latest_result is not None else "N/A")
-        
-
-def plot_chart(x, y):
+    
+    # Data ko sort karo
     if x and y:
+        paired = list(zip(x, y))
+        paired.sort(key=lambda pair: pair[0])
+        x, y = zip(*paired)
+        x, y = list(x), list(y)
+    
+    # Gaps ke liye segments banao
+    segments = []
+    current_segment_x, current_segment_y = [], []
+    for i in range(len(x)):
+        current_segment_x.append(x[i])
+        current_segment_y.append(y[i])
+        
+        if i < len(x) - 1:
+            time_diff = (x[i + 1] - x[i]).total_seconds() / 60
+            if time_diff > 5:
+                segments.append((current_segment_x, current_segment_y))
+                current_segment_x, current_segment_y = [], []
+    
+    if current_segment_x:
+        segments.append((current_segment_x, current_segment_y))
+    
+    return segments
+
+def plot_chart(segments):
+    if segments:
         fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=x,
-            y=y,
-            mode='lines+markers',
-            name='Execution Result',
-            line=dict(color='royalblue', width=2),
-            marker=dict(size=6, symbol='circle')
-        ))
+        for i, (segment_x, segment_y) in enumerate(segments):
+            fig.add_trace(go.Scatter(
+                x=segment_x,
+                y=segment_y,
+                mode='lines+markers',
+                name=f'Execution Result {i+1}',
+                line=dict(color='royalblue', width=2),
+                marker=dict(size=6, symbol='circle')
+            ))
         fig.update_layout(
             title="Real-Time Execution Results",
             xaxis_title="",
@@ -180,15 +178,34 @@ def plot_chart(x, y):
     else:
         status_placeholder.warning("No valid data to display")
 
+def update_metrics():
+    with metrics_placeholder.container():
+        st.metric("Total Points", st.session_state.total_points)
+        total_result = sum(
+            float(row.get('Result', 0))
+            for row in st.session_state.plot_data
+            if row.get('Result') is not None
+        )
+        count = sum(
+            1 for row in st.session_state.plot_data
+            if row.get('Result') is not None
+        )
+        average_result = total_result / count if count > 0 else 0
+        st.metric("Sum Result", f"{total_result:.3f}")
+        st.metric("Average Result", f"{average_result:.3f}")
+        local_time = datetime.now()
+        last_update_time = local_time.strftime("%Y-%m-%d %H:%M:%S")
+        st.metric("Last Update", last_update_time)
+        st.metric("Latest Result", st.session_state.latest_result if st.session_state.latest_result is not None else "N/A")
+
 def update_dashboard():
     var_id_changed = st.session_state.previous_var_id != selected_var_id
     if var_id_changed:
-        st.session_state.plot_data = []  # Reset plot data
+        st.session_state.plot_data = []
         st.session_state.last_timestamp = datetime.min
         st.session_state.previous_var_id = selected_var_id
-        st.session_state.total_points = 0  # Reset total points
+        st.session_state.total_points = 0
         st.session_state.latest_result = None
-        # logger.info(f"Var_Id changed to {selected_var_id}, resetting plot data, timestamp, and total points")
     show_loader = st.session_state.is_first_run or var_id_changed
     try:
         if show_loader:
@@ -196,13 +213,12 @@ def update_dashboard():
                 fetch_and_update_data(show_loader)
         else:
             fetch_and_update_data(show_loader)
-        x, y = prepare_plot_data()
+        segments = prepare_plot_data()
         update_metrics()
-        plot_chart(x, y)
+        plot_chart(segments)
         if st.session_state.is_first_run:
             st.session_state.is_first_run = False
     except Exception as e:
-        # logger.error(f"Dashboard update error: {e}")
         status_placeholder.error(f"Error: {str(e)}")
 
 # Main loop
